@@ -1,63 +1,66 @@
 #ifndef PREFETCHER_H
 #define PREFETCHER_H
 
-#define MAX_STATE_COUNT 256
-#define MAX_REQUEST_COUNT 32
-#define NULL_STATE 0xFFFF
-#define L1_PREFETCH_DEGREE 8
-#define L2_PREFETCH_DEGREE 12
-#define L1_CACHE_BLOCK 16
-#define L2_CACHE_BLOCK 32
-
-#define MAX(x, y) (((x) > (y)) ? (x) : (y))
-#define MIN(x, y) (((x) < (y)) ? (x) : (y))
-
 #include <sys/types.h>
-#include <stdio.h>
+#include "mem-sim.h"
+#include <queue>
+#include <utility>
+#include <vector>
+#include <map>
 
-struct Request;
-
-struct State {
-  u_int32_t pc;     // PC of the state
-  u_int32_t addr;   // Last access address
-  u_int16_t count;  // Access counter
-  int16_t offset;   // Access offset
-  u_int16_t ahead;  // Accesses prefetched ahead
-  u_int16_t next;   // Next state for LRU
+struct ReqPriority
+{
+	char priority;
+	u_int32_t policy;
 };
 
-class Prefetcher {
+typedef std::pair<Request, ReqPriority> TReqPair;
+
+class ReqComp
+{
+	public:
+	bool operator() (const TReqPair& lhs, const TReqPair& rhs) const
+	{
+		return (lhs.second.priority > rhs.second.priority);
+	}
+};
+
+class Prefetcher
+{
   private:
-  // History state table - Size: sizeof(State) * MAX_STATE_COUNT
-  u_int32_t stateCount;
-  u_int32_t stateHead;
-  State historyState[MAX_STATE_COUNT];
+        // total state saved: 2625+200+5.25+80+40+4+4 = 2958.25 bytes
 
-  // Local request queue
-  u_int32_t frontRequest;
-  u_int32_t rearRequest;
-  u_int32_t localRequest[MAX_REQUEST_COUNT];
+        // 500 max elements * pair(4 bytes addr, [1 byte priority, 2 bit policy])
+	std::vector<TReqPair> _reqQueue;		// (4+1.25)*500=2625
 
-  // History state table operations
-  void initHistoryState();
-  bool ifEmptyHistoryState();
-  bool ifFullHistoryState();
-  void insertHistoryState(u_int32_t, u_int32_t, u_int16_t, int16_t, u_int16_t);
-  u_int16_t queryHistoryState(u_int32_t);
-  u_int16_t getSecondLRUState();
+        // 50 max elements * 4 byte address counts
+	std::map<u_int32_t,u_int32_t> _temporalMap;	// 4*50=200
 
-  // Local request queue operations
-  void initLocalRequest();
-  bool ifEmptyLocalRequest();
-  bool ifFullLocalRequest();
-  bool enLocalRequest(u_int32_t);
-  u_int32_t deLocalRequest();
-  u_int32_t getFrontLocalRequest();
-  bool ifAlreadyInQueue(u_int32_t);
+        // 1 max element * pair(4 bytes addr, [1 byte priority, 2 bit policy])
+	std::vector<TReqPair> _recentRequests;		// 5.25
+	
+	// 20 max elements * 4 byte address
+        std::vector<Request> _arrivals;			// 4*20=80
+
+        // 10 max elements * 4 byte address
+	std::vector<u_int32_t> _periodicRequests;	// 4*10=40
+
+        // 2 max elements * 2 byte offsets
+	std::vector<short> _offsets;			// 2*2=4
+
+        // 4 elements * 1 byte priority
+	std::vector<char> _policyBasePriorities;	// 4
+
+	std::vector<TReqPair> GetOffsetRequests();
+	std::vector<TReqPair> GetTemporalRequests();
+	std::vector<TReqPair> GetLookAheadRequests(Request req);
+	std::vector<TReqPair> GetPeriodicRequests();
+	std::vector<ReqPriority> GetPriorities();
+
+	void insertRequest( TReqPair newReq );
 
   public:
-  // Construction function
-  Prefetcher();
+	Prefetcher();
 
 	// should return true if a request is ready for this cycle
 	bool hasRequest(u_int32_t cycle);
