@@ -1,199 +1,188 @@
 #include "prefetcher.h"
 #include <stdio.h>
+#include <cmath>
 
-Prefetcher::Prefetcher() {
-	int i;
+Prefetcher::Prefetcher() :  
+	_address_load_diff(0), _address_store_diff(0)
+{
+	_cFetch = _cReqs = 0;
+}
 
-	_ready = false;
-	_nextReq.addr = 0;
-	_enqueue = 0;
-	_prev_addr = 0;
-	_next_diff = 0;
-	_count = 0;
-	_items = (struct item *)malloc(sizeof(struct item) * MAX_CAPACITY);
-	if (_items) {
-		for (i = 0; i < MAX_CAPACITY; i++) {
-			_items[i].diff = 0;
-			_items[i].prev = -1;
+bool Prefetcher::hasRequest(u_int32_t cycle) 
+{
+	return !_fetchQueue.empty();
+}
+
+Request Prefetcher::getRequest(u_int32_t cycle) 
+{
+	_cFetch = max(_cFetch, long(_fetchQueue.size()));
+
+	Request req = {0};
+
+	req.addr = _fetchQueue.front();
+
+	// Remove handling for this PC
+	_fetchQueue.pop();
+
+	return req;
+}
+
+void Prefetcher::completeRequest(u_int32_t cycle) 
+{
+
+}
+
+int sign(long num)
+{
+	if (num >= 0) return 1;
+	return -1;
+}
+
+void Prefetcher::cpuRequest(Request req) 
+{	
+	// In case of a load
+	if (req.load)
+	{	
+		// First time update diff of addresess
+		if (_address_load_diff == 0)
+			_address_load_diff = req.addr;
+
+		// If a miss / prefetch hit
+		if (!req.HitL1 || !req.fromCPU)
+		{
+			// Global history - teach and prefetch prediction
+			_globalHistoryLoads.AddMiss(req.pc, req.addr, _fetchQueue, true);
+
+			// Stride prefetcher
+			int size = _fetchQueue.size();
+			for (int i=1; i<=13-size; ++i)
+				_fetchQueue.push(req.addr + i*16);
+
+			// Delta prefetcher
+			long last_diff = ((long(req.addr) - long(_address_load_diff)) * 16) / 16;
+
+			if (last_diff > 0 && last_diff < 1024)
+				_fetchQueue.push(req.addr + last_diff);
+
+			_address_load_diff = req.addr;
 		}
-	} else {
-		printf("ERROR: items initialization failed");
 	}
-}
+	else // In case of a store
+	{
+		// First time update diff of addresess
+		if (_address_store_diff == 0)
+			_address_store_diff = req.addr;
 
-Prefetcher::~Prefetcher() {
-	free(_items);
-}
+		// If a miss / prefetch hit
+		if (!req.HitL1 || !req.fromCPU)
+		{
+			// Global history - teach and prefetch prediction
+			_globalHistoryStores.AddMiss(req.pc, req.addr, _fetchQueue, true);
+			
+			// Stride prefetcher
+			int size = _fetchQueue.size();
+			for (int i=0; i<=13-size; ++i)
+				_fetchQueue.push(req.addr + i*16);
+		
+			// Delta prefetcher
+			long last_diff = ((long(req.addr) - long(_address_store_diff)) * 16) / 16;
+			if (last_diff > 0 && last_diff < 1024)
+				_fetchQueue.push(req.addr + last_diff);
+			
+			_address_store_diff = req.addr;
+		}
+	}
 
-bool Prefetcher::hasRequest(u_int32_t cycle)
-{
-	_count++;
-	if (_count > 3)
-		_ready = false;
-	else
-		_ready = true;
+	// Limit size of queue
+	queue<u_int32_t> tmpQueue;
+	set<u_int32_t> tmpSet;
 
-	return _ready;
-}
+	// Limit size of queue as well
+	int limit_queue = 24;
 
-Request Prefetcher::getRequest(u_int32_t cycle)
-{
-	int next_diff;
+	// Make sure there are no duplications
+	while (_fetchQueue.size() && limit_queue--)
+	{
+		u_int32_t curr = _fetchQueue.front();
+		_fetchQueue.pop();
 
-	if (_count == 1)
-		next_diff = _next_diff;
-	else if (_count == 2)
-		next_diff = _next_diff - 32;
-	else
-		next_diff = _next_diff + 32;
+		if (tmpSet.count(curr) > 0)
+		{
+			continue;
+		}
 
-	_nextReq.addr = _prev_addr + next_diff;
-	return _nextReq;
-}
+		tmpQueue.push(curr);
+	}
+	
+	while (tmpQueue.size())
+	{
+		_fetchQueue.push(tmpQueue.front());
+		tmpQueue.pop();
+	}
 
-void Prefetcher::completeRequest(u_int32_t cycle)
-{
 	return;
 }
 
-void Prefetcher::update_enq(void)
+short GlobalHistory::index1 = 4;
+short GlobalHistory::index2 = 1;
+
+int _main()
 {
-	_enqueue++;
-	if (_enqueue == MAX_CAPACITY)
-		_enqueue = 0;
-}
+	queue<u_int32_t> fetchThis;
+	GlobalHistory _globalHistoryStores;
 
-/* find the previos entry in the global distance table with the same distance */
-int Prefetcher::find_prev(int diff)
-{
-	int cur_enq = _enqueue;
-	int i;
-	bool found = false;
+	// First iteration
+	_globalHistoryStores.AddMiss(100, 0, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
 
-	for (i = 0; i < MAX_CAPACITY - 1; i++) {
-		if (cur_enq == 0)
-			cur_enq = MAX_CAPACITY - 1;
-		else
-			cur_enq--;
+	_globalHistoryStores.AddMiss(200, 1, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
 
-		if (_items[cur_enq].diff == diff) {
-			found = true;
-			break;
-		}
+	_globalHistoryStores.AddMiss(250, 2, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
+
+	_globalHistoryStores.AddMiss(349, 64, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
+
+	// Second iteration
+	_globalHistoryStores.AddMiss(200, 65, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
+
+	_globalHistoryStores.AddMiss(250, 66, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
+
+	_globalHistoryStores.AddMiss(349, 128, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
+
+	while(fetchThis.size()) fetchThis.pop();
+	_globalHistoryStores.AddMiss(200, 129, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	/*
+	// Third iteration
+	_globalHistoryStores.AddMiss(5, 129, fetchThis, false);
+	_globalHistoryStores.PrintStacks();
+	system("pause");
+	_globalHistoryStores.AddMiss(20, 130, fetchThis, false);
+	_globalHistoryStores.PrintStacks();
+	system("pause");
+	_globalHistoryStores.AddMiss(100, 192, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	system("pause");
+	*/
+	while (fetchThis.size())
+	{
+		cout << "Predicted: " << fetchThis.front() << endl;
+		fetchThis.pop();
 	}
 
-	if (found)
-		return cur_enq;
-	else
-		return -1;
-}
+	_globalHistoryStores.PrintStacks();
 
-/*
- * Search the global table, with the current distance, find the next possible
- * distance based on global history.
- * We will add the most possible next distance to current request address,
- * formatting the next request address.
- */
-int Prefetcher::find_next_req(int diff)
-{
-	int cur_enq = _enqueue;
-	int candidate;
-	int i;
-	bool found = false;
-	struct item array[10];
-	int num = 0;
-	int flip = 0;
-	int max = 0;
-	int index = 0;
-	int next_pos = 0;
-	int temp_diff = 0;
-	bool first_cycle = true;
-
-	/* Initialize the candidates array with 10 entrys */
-	for (i = 0; i < 10; i++) {
-		array[i].diff = 0;
-		array[i].prev = 0; //use prev field as counter
-	}
-
-	while(1) {
-		if (!first_cycle) {
-			candidate = cur_enq + 1;
-			if (candidate == MAX_CAPACITY)
-				candidate = 0;
-
-			/* Insert the addr of candidate entry to candidates array */
-			temp_diff = _items[candidate].diff;
-			if (temp_diff) {
-				for (i = 0; i < num; i++) {
-					if (array[i].diff == temp_diff) {
-						array[i].prev++;
-						break;
-					}
-				}
-
-				if (i == num && num < 10) { //add new candidates
-					array[num].diff = temp_diff;
-					array[num].prev++;
-					num++;
-				}
-			}
-		} else {
-			first_cycle = false;
-		}
-
-		next_pos = _items[cur_enq].prev;
-		if (next_pos == -1)
-			break;
-		if (next_pos >= cur_enq && flip)
-			break;
-		if (next_pos >= cur_enq)
-			flip = 1;
-		if (_items[next_pos].diff != diff)
-			break;
-
-//		printf("diff %d, enqueue %d, next_pos %d, cur_enq %d\n", diff, _enqueue, next_pos, cur_enq);
-		cur_enq = next_pos;
-	}
-
-	for (i = 0; i < num; i++) {
-//		printf(" candidate %d, 0x%x, %d\n", i, array[i].addr, array[i].prev);
-		if (array[i].prev > max) {
-			max = array[i].prev;
-			index = i;
-		}
-	}
-
-	if (max && array[index].diff)
-		return array[index].diff;
-	else
-		return 0;
-}
-
-void Prefetcher::cpuRequest(Request req)
-{
-	int diff;
-	int next_diff;
-
-	if(!_ready && !req.HitL1) {
-		diff = req.addr - _prev_addr;
-
-		_items[_enqueue].diff = diff;
-		_items[_enqueue].prev = find_prev(diff);
-//		printf("enqueue 0x%x, %d at %d\n", req.addr, _items[_enqueue].prev, _enqueue);
-		update_enq();
-		next_diff = find_next_req(diff);
-
-		/* align next_diff to 64 */
-		if (next_diff >= 0 && next_diff < 64) {
-//			printf("find candidate diff %d for 0x%x\n", next_diff, req.addr);
-			next_diff = 64;
-		} else if (next_diff < 0 && next_diff > -64){
-			next_diff = -64;
-		}
-
-		_next_diff = next_diff;
-		_ready = true;
-		_prev_addr = req.addr;
-		_count = 0;
-	}
+	return 0;
 }
