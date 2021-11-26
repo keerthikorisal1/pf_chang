@@ -1,195 +1,110 @@
 #include "prefetcher.h"
 #include "mem-sim.h"
 #include <stdio.h>
-#include <climits>
 
-Entry::Entry(): _src(0), _dest(0), _occ(0) {}
+Prefetcher::Prefetcher() {
+  for (int i = 0; i < N; ++i) {
+    _readys[i] = false;
+  }
 
-Prefetcher::Prefetcher()
-{    
-	_ready = false;
-	_oldReqCounter = 0;
-	_nextReqCounter = 0;
-    
-	_oldEntryCounter = 0;
-	_prev = 0;
-	
-	_check = false;   
+  for (int i = 0; i < STORE; ++i) {
+    last_addrs[i] = 0;
+  }
+
+  _strider_ready = false;
+  step = -1;
+  prediction = 0;
+  fifo = 0;
+  // _ready = false;
 }
 
-
-bool Prefetcher::mostLikelyTransition(u_int32_t from_addr, unsigned int &to_entry, float &prob) 
-{    
-	Entry e;
-	bool found = false;
-	unsigned int occ_total = 0;
-	unsigned int i;
-
-	for(i=0; i<PREFETCHER_STATE_AMOUNT; i++) 
-	{
-		if(_pairs[i]._src == from_addr/16) 
-		{
-			occ_total += _pairs[i]._occ;
-			if(_pairs[i]._occ > e._occ) 
-			{
-				e = _pairs[i];
-				to_entry = i;
-				found = true;
-			}
-		}
-	}
-	if(!found) { return false; }
-	prob *= (float)e._occ / (float)occ_total;
-	return true;
+bool Prefetcher::hasRequest(u_int32_t cycle) {
+  return hasChunkRequest() | hasStrideRequest();
 }
 
-
-// should return true if a request is ready for this cycle
-bool Prefetcher::hasRequest(u_int32_t cycle) { return _ready || _oldReqCounter != _nextReqCounter; }
-
-// request a desired address be brought in
-Request Prefetcher::getRequest(u_int32_t cycle) 
-{
-	Request r;
-	r.addr = _reqQueue[_nextReqCounter];
-	return r;
+Request Prefetcher::getRequest(u_int32_t cycle) {
+  if (hasChunkRequest()) {
+    Request r = _nextReq;
+    for (int i = 0; i < N; ++i) {
+      r.addr += 16;
+      if(_readys[i]) {
+        break;
+      }
+    }
+  	return r;
+  }
+  return _striderReq;
+  
+  // _nextReq.addr += 16;
+  // return _nextReq;
 }
 
-// this function is called whenever the last prefetcher request was successfully sent to the L2
-void Prefetcher::completeRequest(u_int32_t cycle) 
-{
-    
-	_ready = false;
-	if(_nextReqCounter != _oldReqCounter) {
-		_nextReqCounter = (_nextReqCounter+1) % PREFETCHER_REQ_QUEUE_SIZE;
-	}
-    
+void Prefetcher::completeRequest(u_int32_t cycle) { 
+  for (int i = 0; i < N; ++i) {
+    if(_readys[i]) {
+      _readys[i] = false;
+      return;
+    }
+  }
+  _strider_ready = false;
 }
 
-void Prefetcher::cpuRequest(Request req) 
-{
-    
-	bool found = false;
-	
-	// Modify the Markovian model according to current request.
-	for(unsigned int i=0; i<PREFETCHER_STATE_AMOUNT; i++)
-	{
-		if(_prev == _pairs[i]._src)
-		{
-			if(req.addr/16 == _pairs[i]._dest)
-			{
-				found = true;
-				_pairs[i]._occ+=2;
-			} 
-			else if(_pairs[i]._occ >= 1)
-			{
-				_pairs[i]._occ--;
-			}
-		}
-	}
-	
-	unsigned int to_entry;
-	float prob = 1.0;
-	
-	// Check whether the previous prediction is correct.
-	if( req.HitL1 && _check ) 
-	{
-		if( mostLikelyTransition(_checkAddr, to_entry, prob) && _checkProb*prob > THRESHOLD_PROBABILITY )
-		{
-            		if(_pairs[to_entry]._dest == req.addr/16 )
-			{
-			 	_checkAddr = req.addr;
-			 	_checkProb*=prob;
-            		}
-		}
-		else 
-		{
-			_check = false;
-		}
-	}
-	else if( !req.HitL1 && _check )
-	{
-		if( mostLikelyTransition(_checkAddr, to_entry, prob) && _checkProb*prob > THRESHOLD_PROBABILITY )
-		{
-			if(_pairs[to_entry]._occ >= 4)
-			{
-				_pairs[to_entry]._occ-= 4;
-				_check = false;
-			}
-		}
-	}
-    
-    	if(!_ready && !req.HitL1) 
-	{
-        
-		u_int32_t from_addr = req.addr;
-		float prob = 1.0;
-		unsigned int to_entry;
-		if(mostLikelyTransition(from_addr, to_entry, prob) && prob > THRESHOLD_PROBABILITY)
-		{
-			_check = true;
-			_checkAddr = from_addr;
-			_checkProb = prob;
-		}
-		
-        	if(!found)
-		{
-            
-        		_pairs[_oldEntryCounter]._src = _prev;
-    	        	_pairs[_oldEntryCounter]._dest = req.addr/16;
-    	        	_pairs[_oldEntryCounter]._occ = 1;
-   	         	_oldEntryCounter = (_oldEntryCounter + 1) % PREFETCHER_STATE_AMOUNT;
-            
-		}
-        
-		// Remove entries from the request queue if previous predictions seem incorrect.
-		// Not needed for smaller request queue because all prefetcher requests will have been issued before CPU restarts from stalling.
-		// Fill up the request queue
-		found = false;
-        
- 		       
-	    	while(mostLikelyTransition(from_addr, to_entry, prob) && prob > THRESHOLD_PROBABILITY)
-		{
-            
-			_reqQueue[_oldReqCounter] = _pairs[to_entry]._dest * 16;
-			_oldReqCounter = (_oldReqCounter+1) % PREFETCHER_REQ_QUEUE_SIZE;
-			from_addr = _pairs[to_entry]._dest * 16;
-			found = true;
-			
-			_pairs[_oldEntryCounter] = _pairs[to_entry];
-			int i=to_entry;
-			
-			while(i!=_oldEntryCounter)
-			{
-				int j=i-1;
-				if(j<0) { j=PREFETCHER_STATE_AMOUNT-1; }
-				_pairs[i] = _pairs[j];
-				i--;
-				if(i<0) { i=PREFETCHER_STATE_AMOUNT-1; }
-			}
-			
-			_oldEntryCounter = (_oldEntryCounter + 1) % PREFETCHER_STATE_AMOUNT;
-			
-			if(_oldReqCounter == _nextReqCounter) { break; }
-		}
-		
-		if(!found) 
-		{
-			_oldReqCounter = _nextReqCounter;
-	
-			for(unsigned int i=0; i<6; i++)
-			{
-				_reqQueue[_oldReqCounter] = req.addr + 16*(i+2);
-				_oldReqCounter = (_oldReqCounter+1) % PREFETCHER_REQ_QUEUE_SIZE;
-			}
-		}
-        
-		// Get it ready to fire!
-		_ready = true;
-  	      
-		// Prepare for the next call.
- 		_prev = req.addr/16;
-	        
-	}
-    
+void Prefetcher::cpuRequest(Request req) {
+  last_addrs[fifo] = req.addr;
+
+  printf("%u\t%i\n", req.addr, req.HitL1);
+  bool ready = !req.HitL1;
+  for (int i = 0; i < N; ++i) {
+    ready &= !_readys[i];
+  }
+
+  if(ready) {
+    _nextReq.addr = req.addr;
+    for (int i = 0; i < N; ++i) {
+      _readys[i] = true;
+    }
+    // _ready = true;
+  } else {
+    findPattern();
+    if (prediction) {
+      _strider_ready = true;
+      _striderReq.addr = last_addrs[getIdx(step)] + prediction;
+      // printf("\tMaking prediction to %u of step size %d\n", (u_int32_t)(last_addrs[getIdx(step)] + prediction), prediction);
+    }
+  }
+  fifo = (fifo+1)%STORE;
+}
+
+void Prefetcher::findPattern() {
+  long long diff1 = 0;
+  long long diff2 = 0;
+  step = -1;
+  prediction = 0;
+  for (int i = 0; i < (STORE/3)-1; ++i) {
+    diff1 = last_addrs[getIdx(i)] - last_addrs[getIdx(2*i + 1)];
+    diff2 = last_addrs[getIdx(2*i + 1)] - last_addrs[getIdx(3*i + 2)];
+    if(diff1 == diff2 && 
+      diff1 != 0) {
+      prediction = diff1;
+      step = i;
+    }
+  }
+
+  // if(step != -1) printf("\t\t%i\n", step);
+}
+
+short Prefetcher::getIdx(short addr) {
+  return (fifo + STORE - addr)%STORE;
+}
+
+bool Prefetcher::hasChunkRequest() {
+  bool all = false;
+  for (int i = 0; i < N; ++i) {
+    all |= _readys[i];
+  }
+  return all;
+}
+
+bool Prefetcher::hasStrideRequest() {
+  return _strider_ready;
 }
