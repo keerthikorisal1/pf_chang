@@ -26,8 +26,8 @@
 #define L2_BLOCK_SIZE 32
 #define NUM_REQS_PER_MISS 3
 
-#define NUM_RPT_ENTRIES 128 /*STATE 128 * 12 = 1536 (1792 with tag)*/ 
-#define WORTHWHILE_RPT 128
+#define NUM_RPT_ENTRIES 256 /*STATE 128 * 12 = 1536 (1792 with tag)*/ 
+#define WORTHWHILE_RPT 256
 
 typedef struct rpt_row_entry{ /* each row has 4 * 3 = 12 bytes */
   unsigned int pc;
