@@ -1,194 +1,181 @@
 #include "prefetcher.h"
 #include <stdio.h>
-#include <climits>
 
-Entry::Entry(): _src(0), _dest(0), _occ(0) {}
+/* tagged prefetcher, prefetch the next block(s) based on when they
+   are accessed. Our state is a massive bit array indicated whether
+   or not an element is "tagged" - meaning that it has been issued as 
+   a prefetcher request.  Whenever the prefetcher request is used, we 
+   prefetch the next block(s). The size of the bit array is exactly
+   STATE_SIZE number of bytes: 2048 in this case. */
+static char tags[STATE_SIZE];
 
-Prefetcher::Prefetcher()
-{    
-	_ready = false;
-	_oldReqCounter = 0;
-	_nextReqCounter = 0;
-    
-	_oldEntryCounter = 0;
-	_prev = 0;
-	
-	_check = false;   
+/* The second major component of our state is the RPT table, which
+   stores the PC of the instructions that make memory requests.  It 
+   also stores the address of the last memory request by that PC and
+   the "stride" which is defined as the distance between two accesses.
+   If the "stride" is large enough and regular, then this is used to 
+   prefetch instead of just grabbing sequential blocks. The values of 
+   the pc, and stride could be shortened into one 32-bit block, but we 
+   currently have 3 4-byte integers: 12 bytes per entry.  Thus, the 
+   state contribution is NUM_RPT_ENTRIES * 12: 1536 bytes. */
+static char rpt_check[NUM_RPT_ENTRIES/8 + 1];
+
+/* We hold another bit array which is used to check whether or not the
+   RPT table should be used when a prefetched block is accessed by the
+   CPU. It has as many bits as there are entries into the RPT table.  
+   Thus, it's state contribution is NUM_RPT_ENTRIES/8 bytes: 
+   128/8 = 16 bytes. */
+static rpt_row_entry_t rpt_table[NUM_RPT_ENTRIES]; 
+
+/* The following bitArray functions all use 3 ints and 3 chars 
+   for their private variables which results in a negligible
+   15 bytes of state plus a bit for the return value. */
+
+/* private functions for bit-array management*/
+static
+bool checkBit(u_int32_t addr, char *bitArray, int size){
+  int bit_index, char_index, rem_bits;
+  char section, selector, result;
+  bit_index = addr % (size * sizeof(char));
+  char_index = bit_index/BITS_PER_CHAR;  //8 bits per char
+  rem_bits = bit_index - (char_index * BITS_PER_CHAR);
+  selector = 1;
+  selector = selector << rem_bits;
+  section = bitArray[char_index];
+  result = section & selector;
+  if(result > 0){
+    return true;
+  }else{
+    return false;
+  }
 }
 
-
-bool Prefetcher::mostLikelyTransition(u_int32_t from_addr, unsigned int &to_entry, float &prob) 
-{    
-	Entry e;
-	bool found = false;
-	unsigned int occ_total = 0;
-	unsigned int i;
-
-	for(i=0; i<PREFETCHER_STATE_AMOUNT; i++) 
-	{
-		if(_pairs[i]._src == from_addr/16) 
-		{
-			occ_total += _pairs[i]._occ;
-			if(_pairs[i]._occ > e._occ) 
-			{
-				e = _pairs[i];
-				to_entry = i;
-				found = true;
-			}
-		}
-	}
-	if(!found) { return false; }
-	prob *= (float)e._occ / (float)occ_total;
-	return true;
+static
+void markBit(u_int32_t addr, char *bitArray, int size){
+  int bit_index, char_index, rem_bits;
+  char section, selector, result;
+  bit_index = addr % (size * sizeof(char));
+  char_index = bit_index/BITS_PER_CHAR; //8 bits per char
+  rem_bits = bit_index - (char_index * BITS_PER_CHAR);
+  /*printf("For address %d, bit_index %d, char_index %d and rem_bits %d\n",
+    addr, bit_index, char_index, rem_bits); */
+  selector = 1;
+  selector = selector << rem_bits;
+  bitArray[char_index] = bitArray[char_index] | selector;
+  return;
 }
 
+static
+void unmarkBit(u_int32_t addr, char *bitArray, int size){
+  int bit_index, char_index, rem_bits;
+  char section, selector, result;
+  bit_index = addr % (size * sizeof(char));
+  char_index = bit_index/BITS_PER_CHAR; //8 bits per char
+  rem_bits = bit_index - (char_index * BITS_PER_CHAR);
+  selector = 1;
+  selector = selector << rem_bits;
+  bitArray[char_index] = bitArray[char_index] & (~selector);
+  return;
+}
+/* i consumes 4 bytes */
+Prefetcher::Prefetcher() { 
+  int i;
+    _ready = false; 
+    /* mark all tags as not prefetched, and clear RPT table */
+    memset(tags, 0, STATE_SIZE);
+    for(i = 0; i < NUM_RPT_ENTRIES; i++){
+      rpt_table[i].pc = 0;
+      rpt_table[i].last_stride = 0;
+      rpt_table[i].last_mem = 0;
+      unmarkBit(i, rpt_check, (NUM_RPT_ENTRIES/8 + 1));
+    }
 
-// should return true if a request is ready for this cycle
-bool Prefetcher::hasRequest(u_int32_t cycle) { return _ready || _oldReqCounter != _nextReqCounter; }
-
-// request a desired address be brought in
-Request Prefetcher::getRequest(u_int32_t cycle) 
-{
-	Request r;
-	r.addr = _reqQueue[_nextReqCounter];
-	return r;
 }
 
-// this function is called whenever the last prefetcher request was successfully sent to the L2
-void Prefetcher::completeRequest(u_int32_t cycle) 
-{
-    
-	_ready = false;
-	if(_nextReqCounter != _oldReqCounter) {
-		_nextReqCounter = (_nextReqCounter+1) % PREFETCHER_REQ_QUEUE_SIZE;
-	}
-    
-}
+bool Prefetcher::hasRequest(u_int32_t cycle) { return _ready; }
 
-void Prefetcher::cpuRequest(Request req) 
-{
-    
-	bool found = false;
-	
-	// Modify the Markovian model according to current request.
-	for(unsigned int i=0; i<PREFETCHER_STATE_AMOUNT; i++)
-	{
-		if(_prev == _pairs[i]._src)
-		{
-			if(req.addr/16 == _pairs[i]._dest)
-			{
-				found = true;
-				_pairs[i]._occ+=2;
-			} 
-			else if(_pairs[i]._occ >= 1)
-			{
-				_pairs[i]._occ--;
-			}
-		}
+Request Prefetcher::getRequest(u_int32_t cycle) { return _nextReq; }
+
+/* completeRequest uses an additional pointer and two integers
+   which results in an additional 12 bytes of state. */
+void Prefetcher::completeRequest(u_int32_t cycle) { 
+    int rpt_row_num, curr_stride;
+    rpt_row_entry_t *curr_row;
+
+    if(_req_left == 0){
+    _ready = false; 
+  }else{
+    _req_left--;
+    rpt_row_num = _nextReq.pc % NUM_RPT_ENTRIES;
+    curr_row = &rpt_table[rpt_row_num];
+    if(curr_row->pc == _nextReq.pc && checkBit(rpt_row_num, rpt_check, (NUM_RPT_ENTRIES/8 + 1))){
+      /*this pc is associated with a valid rpt entry, use stride */
+      _nextReq.addr = _nextReq.addr + curr_row->last_stride;
+    }else{
+      _nextReq.addr = _nextReq.addr + L2_BLOCK_SIZE;
+    }
+    markBit(_nextReq.addr, tags, STATE_SIZE);  //mark this as a prefetched block 
+  }
+}
+/* cpuRequest uses the same as above, 12 bytes of 'state'*/
+void Prefetcher::cpuRequest(Request req) { 
+        int rpt_row_num, curr_stride;
+	rpt_row_entry_t *curr_row;
+
+	/*if it is a hit and this was a prefetch address, 
+	  get the next one.  Not worries about duplicate reqs. */ 
+        if(req.HitL1 && checkBit(req.addr, tags, STATE_SIZE) && !_ready){
+	  /* determine if we need stride or normal block addition */
+	  /* check entry in RPT table */
+	       rpt_row_num = req.pc % NUM_RPT_ENTRIES;
+	       curr_row = &rpt_table[rpt_row_num];
+	       if(curr_row->pc == req.pc && 
+		  checkBit(rpt_row_num, rpt_check, (NUM_RPT_ENTRIES/8 + 1))){
+		 /* this has a valid entry in the RPT table, use its offset */
+		 curr_stride = curr_row->last_stride;
+		 _nextReq.addr = req.addr + curr_stride;
+	       }else{
+		 /* no valid entry, use normal sequential */
+		 _nextReq.addr = req.addr + L2_BLOCK_SIZE;
+	       }
+	       markBit(_nextReq.addr, tags, STATE_SIZE);  //mark this as a prefetched block 
+	       _ready = true;
+	       _req_left = NUM_REQS_PER_MISS - 1;
+	}else if(/*!_ready && */!req.HitL1) {
+	  /* this was a pure miss, do RPT processing */
+	       rpt_row_num = req.pc % NUM_RPT_ENTRIES;
+	       curr_row = &rpt_table[rpt_row_num];
+	       if(curr_row->pc == req.pc){
+		 /* this entry is in the table */
+		 if((curr_stride = req.addr - (curr_row->last_mem)) == curr_row->last_stride && curr_stride > WORTHWHILE_RPT){
+		   /* if stride is the same as this one,
+		      "punch-it" use it to prefetch */
+		   /*		     printf("PRE: same stride found for address %x, with lastmem of %x and curr_req of %x, previous stride at %d\n",
+				     req.pc, curr_row->last_mem, req.addr, curr_stride); */
+		     /* mark this as a 'strong' rpt value to be used */
+		     markBit(rpt_row_num, rpt_check, (NUM_RPT_ENTRIES/8 + 1));
+		     _nextReq.addr = req.addr + curr_stride;
+		 }else{
+		     /* update to new stride  and do standard prefetch */
+		      curr_row->last_stride = curr_stride; 
+		      _nextReq.addr = req.addr + L2_BLOCK_SIZE;
+		      /* we didn't get two same in a row, don't use */
+                      unmarkBit(rpt_row_num, rpt_check, (NUM_RPT_ENTRIES/8 + 1));
+		 } 
+	       }else{
+		 /* no pc in table, so do standard prefetch*/
+		   _nextReq.addr = req.addr + L2_BLOCK_SIZE;
+		   /* also update stride to 0 so new entry not confused */
+		   curr_row->last_stride = 0;
+		   unmarkBit(rpt_row_num, rpt_check, (NUM_RPT_ENTRIES/8 + 1));
+	       }
+	       /* in all cases, update row in RPT and make prefetch req */
+	       curr_row->pc = req.pc;
+	       curr_row->last_mem = req.addr;
+	       _ready = true;
+	       _req_left = NUM_REQS_PER_MISS - 1;  
 	}
-	
-	unsigned int to_entry;
-	float prob = 1.0;
-	
-	// Check whether the previous prediction is correct.
-	if( req.HitL1 && _check ) 
-	{
-		if( mostLikelyTransition(_checkAddr, to_entry, prob) && _checkProb*prob > THRESHOLD_PROBABILITY )
-		{
-            		if(_pairs[to_entry]._dest == req.addr/16 )
-			{
-			 	_checkAddr = req.addr;
-			 	_checkProb*=prob;
-            		}
-		}
-		else 
-		{
-			_check = false;
-		}
-	}
-	else if( !req.HitL1 && _check )
-	{
-		if( mostLikelyTransition(_checkAddr, to_entry, prob) && _checkProb*prob > THRESHOLD_PROBABILITY )
-		{
-			if(_pairs[to_entry]._occ >= 4)
-			{
-				_pairs[to_entry]._occ-= 4;
-				_check = false;
-			}
-		}
-	}
-    
-    	if(!_ready && !req.HitL1) 
-	{
-        
-		u_int32_t from_addr = req.addr;
-		float prob = 1.0;
-		unsigned int to_entry;
-		if(mostLikelyTransition(from_addr, to_entry, prob) && prob > THRESHOLD_PROBABILITY)
-		{
-			_check = true;
-			_checkAddr = from_addr;
-			_checkProb = prob;
-		}
-		
-        	if(!found)
-		{
-            
-        		_pairs[_oldEntryCounter]._src = _prev;
-    	        	_pairs[_oldEntryCounter]._dest = req.addr/16;
-    	        	_pairs[_oldEntryCounter]._occ = 1;
-   	         	_oldEntryCounter = (_oldEntryCounter + 1) % PREFETCHER_STATE_AMOUNT;
-            
-		}
-        
-		// Remove entries from the request queue if previous predictions seem incorrect.
-		// Not needed for smaller request queue because all prefetcher requests will have been issued before CPU restarts from stalling.
-		// Fill up the request queue
-		found = false;
-        
- 		       
-	    	while(mostLikelyTransition(from_addr, to_entry, prob) && prob > THRESHOLD_PROBABILITY)
-		{
-            
-			_reqQueue[_oldReqCounter] = _pairs[to_entry]._dest * 16;
-			_oldReqCounter = (_oldReqCounter+1) % PREFETCHER_REQ_QUEUE_SIZE;
-			from_addr = _pairs[to_entry]._dest * 16;
-			found = true;
-			
-			_pairs[_oldEntryCounter] = _pairs[to_entry];
-			int i=to_entry;
-			
-			while(i!=_oldEntryCounter)
-			{
-				int j=i-1;
-				if(j<0) { j=PREFETCHER_STATE_AMOUNT-1; }
-				_pairs[i] = _pairs[j];
-				i--;
-				if(i<0) { i=PREFETCHER_STATE_AMOUNT-1; }
-			}
-			
-			_oldEntryCounter = (_oldEntryCounter + 1) % PREFETCHER_STATE_AMOUNT;
-			
-			if(_oldReqCounter == _nextReqCounter) { break; }
-		}
-		
-		if(!found) 
-		{
-			_oldReqCounter = _nextReqCounter;
-	
-			for(unsigned int i=0; i<6; i++)
-			{
-				_reqQueue[_oldReqCounter] = req.addr + 16*(i+2);
-				_oldReqCounter = (_oldReqCounter+1) % PREFETCHER_REQ_QUEUE_SIZE;
-			}
-		}
-        
-		// Get it ready to fire!
-		_ready = true;
-  	      
-		// Prepare for the next call.
- 		_prev = req.addr/16;
-	        
-	}
-    
+        /* mark prefetch tag as 0 since CPU requested this */
+        unmarkBit(req.addr, tags, STATE_SIZE);
+
 }
