@@ -1,188 +1,70 @@
 #include "prefetcher.h"
 #include <stdio.h>
-#include <cmath>
-
-Prefetcher::Prefetcher() :  
-	_address_load_diff(0), _address_store_diff(0)
+#include <stdlib.h>
+#include <climits>
+int count=0;
+Prefetcher::Prefetcher():
+    nextReqAddr(),ready()
 {
-	_cFetch = _cReqs = 0;
 }
 
-bool Prefetcher::hasRequest(u_int32_t cycle) 
+u_int32_t Prefetcher::blockStartAddr(u_int32_t addr,int size)
 {
-	return !_fetchQueue.empty();
+    return addr/size*size;
+}
+// should return true if a request is ready for this cycle
+
+bool Prefetcher::hasRequest(u_int32_t cycle)
+{
+    return ready;
 }
 
-Request Prefetcher::getRequest(u_int32_t cycle) 
+// request a desired address be brought in
+/*
+ * NOTES: u_int32_t cycle will always be the same as it was in hasRequest
+ */
+
+Request Prefetcher::getRequest(u_int32_t cycle)
 {
-	_cFetch = max(_cFetch, long(_fetchQueue.size()));
-
-	Request req = {0};
-
-	req.addr = _fetchQueue.front();
-
-	// Remove handling for this PC
-	_fetchQueue.pop();
-
-	return req;
+    Request nextReq={};
+    nextReq.addr=nextReqAddr;
+    return nextReq;
 }
 
-void Prefetcher::completeRequest(u_int32_t cycle) 
+// this function is called whenever the last prefetcher request was successfully sent to the L2
+//only doesn't get sent if the L2 queue is full!
+void Prefetcher::completeRequest(u_int32_t cycle)
 {
-
+    ready = false;
 }
 
-int sign(long num)
+/*
+ * This function is called whenever the CPU references memory.
+ * Note that only the addr, pc, load, fromCPU, issuedAt, and HitL1 should be considered valid data
+ */
+void Prefetcher::cpuRequest(Request req)
 {
-	if (num >= 0) return 1;
-	return -1;
-}
 
-void Prefetcher::cpuRequest(Request req) 
-{	
-	// In case of a load
-	if (req.load)
-	{	
-		// First time update diff of addresess
-		if (_address_load_diff == 0)
-			_address_load_diff = req.addr;
-
-		// If a miss / prefetch hit
-		if (!req.HitL1 || !req.fromCPU)
-		{
-			// Global history - teach and prefetch prediction
-			_globalHistoryLoads.AddMiss(req.pc, req.addr, _fetchQueue, true);
-
-			// Stride prefetcher
-			int size = _fetchQueue.size();
-			for (int i=1; i<=13-size; ++i)
-				_fetchQueue.push(req.addr + i*16);
-
-			// Delta prefetcher
-			long last_diff = ((long(req.addr) - long(_address_load_diff)) * 16) / 16;
-
-			if (last_diff > 0 && last_diff < 1024)
-				_fetchQueue.push(req.addr + last_diff);
-
-			_address_load_diff = req.addr;
-		}
-	}
-	else // In case of a store
-	{
-		// First time update diff of addresess
-		if (_address_store_diff == 0)
-			_address_store_diff = req.addr;
-
-		// If a miss / prefetch hit
-		if (!req.HitL1 || !req.fromCPU)
-		{
-			// Global history - teach and prefetch prediction
-			_globalHistoryStores.AddMiss(req.pc, req.addr, _fetchQueue, true);
-			
-			// Stride prefetcher
-			int size = _fetchQueue.size();
-			for (int i=0; i<=13-size; ++i)
-				_fetchQueue.push(req.addr + i*16);
-		
-			// Delta prefetcher
-			long last_diff = ((long(req.addr) - long(_address_store_diff)) * 16) / 16;
-			if (last_diff > 0 && last_diff < 1024)
-				_fetchQueue.push(req.addr + last_diff);
-			
-			_address_store_diff = req.addr;
-		}
-	}
-
-	// Limit size of queue
-	queue<u_int32_t> tmpQueue;
-	set<u_int32_t> tmpSet;
-
-	// Limit size of queue as well
-	int limit_queue = 24;
-
-	// Make sure there are no duplications
-	while (_fetchQueue.size() && limit_queue--)
-	{
-		u_int32_t curr = _fetchQueue.front();
-		_fetchQueue.pop();
-
-		if (tmpSet.count(curr) > 0)
-		{
-			continue;
-		}
-
-		tmpQueue.push(curr);
-	}
-	
-	while (tmpQueue.size())
-	{
-		_fetchQueue.push(tmpQueue.front());
-		tmpQueue.pop();
-	}
-
+    if(ready || !req.fromCPU)
 	return;
-}
 
-short GlobalHistory::index1 = 4;
-short GlobalHistory::index2 = 1;
+    u_int32_t reqAddrBlock= blockStartAddr(req.addr,L1_STEP_VALUE);
+    u_int32_t lastReqAddrBlock=blockStartAddr(this->nextReqAddr,L1_STEP_VALUE);
+    int distance=lastReqAddrBlock-reqAddrBlock;
+    //If the CPU didn't hit in L1 we have mispredicted
+    if(!req.HitL1)
+    {
 
-int _main()
-{
-	queue<u_int32_t> fetchThis;
-	GlobalHistory _globalHistoryStores;
+	nextReqAddr = reqAddrBlock + L2_STEP_VALUE;
+	ready = true;
+	++count;
+    }
+    else if(distance>0 && ((distance/L2_STEP_VALUE)<MAX_L2_BLOCK_DIST))
+    { //let the overflow deal with walkign off the end of memory
+	nextReqAddr=lastReqAddrBlock+L2_STEP_VALUE;
+	ready = true;
+    }
 
-	// First iteration
-	_globalHistoryStores.AddMiss(100, 0, fetchThis, true);
-	_globalHistoryStores.PrintStacks();
-	//system("pause");
 
-	_globalHistoryStores.AddMiss(200, 1, fetchThis, true);
-	_globalHistoryStores.PrintStacks();
-	//system("pause");
 
-	_globalHistoryStores.AddMiss(250, 2, fetchThis, true);
-	_globalHistoryStores.PrintStacks();
-	//system("pause");
-
-	_globalHistoryStores.AddMiss(349, 64, fetchThis, true);
-	_globalHistoryStores.PrintStacks();
-	//system("pause");
-
-	// Second iteration
-	_globalHistoryStores.AddMiss(200, 65, fetchThis, true);
-	_globalHistoryStores.PrintStacks();
-	//system("pause");
-
-	_globalHistoryStores.AddMiss(250, 66, fetchThis, true);
-	_globalHistoryStores.PrintStacks();
-	//system("pause");
-
-	_globalHistoryStores.AddMiss(349, 128, fetchThis, true);
-	_globalHistoryStores.PrintStacks();
-	//system("pause");
-
-	while(fetchThis.size()) fetchThis.pop();
-	_globalHistoryStores.AddMiss(200, 129, fetchThis, true);
-	_globalHistoryStores.PrintStacks();
-	/*
-	// Third iteration
-	_globalHistoryStores.AddMiss(5, 129, fetchThis, false);
-	_globalHistoryStores.PrintStacks();
-	system("pause");
-	_globalHistoryStores.AddMiss(20, 130, fetchThis, false);
-	_globalHistoryStores.PrintStacks();
-	system("pause");
-	_globalHistoryStores.AddMiss(100, 192, fetchThis, true);
-	_globalHistoryStores.PrintStacks();
-	system("pause");
-	*/
-	while (fetchThis.size())
-	{
-		cout << "Predicted: " << fetchThis.front() << endl;
-		fetchThis.pop();
-	}
-
-	_globalHistoryStores.PrintStacks();
-
-	return 0;
 }
