@@ -2,19 +2,33 @@
 #define PREFETCHER_H
 
 #include <sys/types.h>
+#include <malloc.h>
+#include <stdint.h>
 #include "mem-sim.h"
-#include <set>
+
+#define MAX_CAPACITY 512
+
+struct item
+{
+	int diff;
+	int prev;
+};
+
 class Prefetcher {
   private:
-	static const u_int32_t  L1_STEP_VALUE=16;
-	static const u_int32_t  L2_STEP_VALUE=32;
-	static const int MAX_L2_BLOCK_DIST=23; //number of L2 blocks ahead of current address to fetch
-	bool ready;
-	u_int32_t nextReqAddr;
+	bool _ready;
+	Request _nextReq;
 
-	u_int32_t blockStartAddr(u_int32_t addr, int size);
+	/* a 512-entry table, maintain global distance history information */
+	struct item *_items;
+	int _enqueue;
+	int _prev_addr;
+	int _next_diff;
+	int _count;
+
   public:
 	Prefetcher();
+	~Prefetcher();
 
 	// should return true if a request is ready for this cycle
 	bool hasRequest(u_int32_t cycle);
@@ -29,7 +43,16 @@ class Prefetcher {
 	 * This function is called whenever the CPU references memory.
 	 * Note that only the addr, pc, load, issuedAt, and HitL1 should be considered valid data
 	 */
-	void cpuRequest(Request req); 
+	void cpuRequest(Request req);
+
+	/* Update enqueue index of GHB array */
+	void update_enq(void); 
+
+	/* Find the previous entry of the same diff */
+	int find_prev(int diff);
+
+	/* Find the next candidate entry to prefetch */
+	int find_next_req(int diff);
 };
 
 #endif
