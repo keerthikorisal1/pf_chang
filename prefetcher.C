@@ -1,110 +1,188 @@
 #include "prefetcher.h"
-#include "mem-sim.h"
 #include <stdio.h>
+#include <cmath>
 
-Prefetcher::Prefetcher() {
-  for (int i = 0; i < N; ++i) {
-    _readys[i] = false;
-  }
-
-  for (int i = 0; i < STORE; ++i) {
-    last_addrs[i] = 0;
-  }
-
-  _strider_ready = false;
-  step = -1;
-  prediction = 0;
-  fifo = 0;
-  // _ready = false;
+Prefetcher::Prefetcher() :  
+	_address_load_diff(0), _address_store_diff(0)
+{
+	_cFetch = _cReqs = 0;
 }
 
-bool Prefetcher::hasRequest(u_int32_t cycle) {
-  return hasChunkRequest() | hasStrideRequest();
+bool Prefetcher::hasRequest(u_int32_t cycle) 
+{
+	return !_fetchQueue.empty();
 }
 
-Request Prefetcher::getRequest(u_int32_t cycle) {
-  if (hasChunkRequest()) {
-    Request r = _nextReq;
-    for (int i = 0; i < N; ++i) {
-      r.addr += 16;
-      if(_readys[i]) {
-        break;
-      }
-    }
-  	return r;
-  }
-  return _striderReq;
-  
-  // _nextReq.addr += 16;
-  // return _nextReq;
+Request Prefetcher::getRequest(u_int32_t cycle) 
+{
+	_cFetch = max(_cFetch, long(_fetchQueue.size()));
+
+	Request req = {0};
+
+	req.addr = _fetchQueue.front();
+
+	// Remove handling for this PC
+	_fetchQueue.pop();
+
+	return req;
 }
 
-void Prefetcher::completeRequest(u_int32_t cycle) { 
-  for (int i = 0; i < N; ++i) {
-    if(_readys[i]) {
-      _readys[i] = false;
-      return;
-    }
-  }
-  _strider_ready = false;
+void Prefetcher::completeRequest(u_int32_t cycle) 
+{
+
 }
 
-void Prefetcher::cpuRequest(Request req) {
-  last_addrs[fifo] = req.addr;
-
-  printf("%u\t%i\n", req.addr, req.HitL1);
-  bool ready = !req.HitL1;
-  for (int i = 0; i < N; ++i) {
-    ready &= !_readys[i];
-  }
-
-  if(ready) {
-    _nextReq.addr = req.addr;
-    for (int i = 0; i < N; ++i) {
-      _readys[i] = true;
-    }
-    // _ready = true;
-  } else {
-    findPattern();
-    if (prediction) {
-      _strider_ready = true;
-      _striderReq.addr = last_addrs[getIdx(step)] + prediction;
-      // printf("\tMaking prediction to %u of step size %d\n", (u_int32_t)(last_addrs[getIdx(step)] + prediction), prediction);
-    }
-  }
-  fifo = (fifo+1)%STORE;
+int sign(long num)
+{
+	if (num >= 0) return 1;
+	return -1;
 }
 
-void Prefetcher::findPattern() {
-  long long diff1 = 0;
-  long long diff2 = 0;
-  step = -1;
-  prediction = 0;
-  for (int i = 0; i < (STORE/3)-1; ++i) {
-    diff1 = last_addrs[getIdx(i)] - last_addrs[getIdx(2*i + 1)];
-    diff2 = last_addrs[getIdx(2*i + 1)] - last_addrs[getIdx(3*i + 2)];
-    if(diff1 == diff2 && 
-      diff1 != 0) {
-      prediction = diff1;
-      step = i;
-    }
-  }
+void Prefetcher::cpuRequest(Request req) 
+{	
+	// In case of a load
+	if (req.load)
+	{	
+		// First time update diff of addresess
+		if (_address_load_diff == 0)
+			_address_load_diff = req.addr;
 
-  // if(step != -1) printf("\t\t%i\n", step);
+		// If a miss / prefetch hit
+		if (!req.HitL1 || !req.fromCPU)
+		{
+			// Global history - teach and prefetch prediction
+			_globalHistoryLoads.AddMiss(req.pc, req.addr, _fetchQueue, true);
+
+			// Stride prefetcher
+			int size = _fetchQueue.size();
+			for (int i=1; i<=13-size; ++i)
+				_fetchQueue.push(req.addr + i*16);
+
+			// Delta prefetcher
+			long last_diff = ((long(req.addr) - long(_address_load_diff)) * 16) / 16;
+
+			if (last_diff > 0 && last_diff < 1024)
+				_fetchQueue.push(req.addr + last_diff);
+
+			_address_load_diff = req.addr;
+		}
+	}
+	else // In case of a store
+	{
+		// First time update diff of addresess
+		if (_address_store_diff == 0)
+			_address_store_diff = req.addr;
+
+		// If a miss / prefetch hit
+		if (!req.HitL1 || !req.fromCPU)
+		{
+			// Global history - teach and prefetch prediction
+			_globalHistoryStores.AddMiss(req.pc, req.addr, _fetchQueue, true);
+			
+			// Stride prefetcher
+			int size = _fetchQueue.size();
+			for (int i=0; i<=13-size; ++i)
+				_fetchQueue.push(req.addr + i*16);
+		
+			// Delta prefetcher
+			long last_diff = ((long(req.addr) - long(_address_store_diff)) * 16) / 16;
+			if (last_diff > 0 && last_diff < 1024)
+				_fetchQueue.push(req.addr + last_diff);
+			
+			_address_store_diff = req.addr;
+		}
+	}
+
+	// Limit size of queue
+	queue<u_int32_t> tmpQueue;
+	set<u_int32_t> tmpSet;
+
+	// Limit size of queue as well
+	int limit_queue = 24;
+
+	// Make sure there are no duplications
+	while (_fetchQueue.size() && limit_queue--)
+	{
+		u_int32_t curr = _fetchQueue.front();
+		_fetchQueue.pop();
+
+		if (tmpSet.count(curr) > 0)
+		{
+			continue;
+		}
+
+		tmpQueue.push(curr);
+	}
+	
+	while (tmpQueue.size())
+	{
+		_fetchQueue.push(tmpQueue.front());
+		tmpQueue.pop();
+	}
+
+	return;
 }
 
-short Prefetcher::getIdx(short addr) {
-  return (fifo + STORE - addr)%STORE;
-}
+short GlobalHistory::index1 = 4;
+short GlobalHistory::index2 = 1;
 
-bool Prefetcher::hasChunkRequest() {
-  bool all = false;
-  for (int i = 0; i < N; ++i) {
-    all |= _readys[i];
-  }
-  return all;
-}
+int _main()
+{
+	queue<u_int32_t> fetchThis;
+	GlobalHistory _globalHistoryStores;
 
-bool Prefetcher::hasStrideRequest() {
-  return _strider_ready;
+	// First iteration
+	_globalHistoryStores.AddMiss(100, 0, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
+
+	_globalHistoryStores.AddMiss(200, 1, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
+
+	_globalHistoryStores.AddMiss(250, 2, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
+
+	_globalHistoryStores.AddMiss(349, 64, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
+
+	// Second iteration
+	_globalHistoryStores.AddMiss(200, 65, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
+
+	_globalHistoryStores.AddMiss(250, 66, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
+
+	_globalHistoryStores.AddMiss(349, 128, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	//system("pause");
+
+	while(fetchThis.size()) fetchThis.pop();
+	_globalHistoryStores.AddMiss(200, 129, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	/*
+	// Third iteration
+	_globalHistoryStores.AddMiss(5, 129, fetchThis, false);
+	_globalHistoryStores.PrintStacks();
+	system("pause");
+	_globalHistoryStores.AddMiss(20, 130, fetchThis, false);
+	_globalHistoryStores.PrintStacks();
+	system("pause");
+	_globalHistoryStores.AddMiss(100, 192, fetchThis, true);
+	_globalHistoryStores.PrintStacks();
+	system("pause");
+	*/
+	while (fetchThis.size())
+	{
+		cout << "Predicted: " << fetchThis.front() << endl;
+		fetchThis.pop();
+	}
+
+	_globalHistoryStores.PrintStacks();
+
+	return 0;
 }
