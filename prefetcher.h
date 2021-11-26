@@ -1,3 +1,9 @@
+/* 
+ * File: prefetcher.h
+ * Description: Header file for prefetcher implementation
+ *
+ */
+
 #ifndef PREFETCHER_H
 #define PREFETCHER_H
 
@@ -15,7 +21,7 @@
    table uses 128/8 = 16 bytes, and the RPT table itself uses 128
    * 12 bytes = 1536.  Thus, in total we have:
    17 + 16 + 1536 + 2048 = 3617 bytes. */
-#define STATE_SIZE 4096  /* STATE calculation: 2kb for tagging */
+#define STATE_SIZE 2048  /* STATE calculation: 2kb for tagging */
 #define BITS_PER_CHAR 8
 #define L2_BLOCK_SIZE 32
 #define NUM_REQS_PER_MISS 3
@@ -61,3 +67,5 @@ class Prefetcher {
 	 */
 	void cpuRequest(Request req); 
 };
+
+#endif
