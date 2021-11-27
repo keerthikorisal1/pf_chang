@@ -3,7 +3,7 @@
 #include <stdlib.h>
 
 Prefetcher::Prefetcher(){
-    rpt_entries = 0;
+    num_rpt = 0;
     oldest_rpt = 0;
 
     u_int16_t stream_buff[STREAM_COUNT] = {0,0,0,0,0,0,0,0};
@@ -49,7 +49,7 @@ void Prefetcher::cpuRequest(Request req){
     // rm lifetime 0
     for(u_int16_t i = 0; i < STREAM_COUNT; i++){
         if(stream_buf[i] == 1 && SLH_TABLE[i].lifetime == 0){
-            streamRest(i);
+            streamReset(i);
         }
     }
     // stream init + index
@@ -68,7 +68,7 @@ void Prefetcher::cpuRequest(Request req){
         rpt[RPT_index].stride = req.addr - rpt[RPT_index].prev_addr;
         rpt[RPT_index].prev_addr = req.addr;
         if(temp_stride == rpt[RPT_index].stride){
-            rpt[RPT_index].strate++;
+            rpt[RPT_index].state++;
             if(rpt[RPT_index].state > 2){
                 if(rpt[RPT_index].state >= REQUEST_CUTOFF && req.HitL1 == true){
                     // if request is part of existing stream buffer
@@ -97,7 +97,7 @@ void Prefetcher::cpuRequest(Request req){
                                 }
                                 else if(SLH_TABLE[i].lifetime == min_lifetime){
                                     if(SLH_TABLE[i].length < SLH_TABLE[LRU_index].length){
-                                        LRU_INDEX = i;
+                                        LRU_index = i;
                                     }
                                 }
                             }
@@ -112,7 +112,7 @@ void Prefetcher::cpuRequest(Request req){
                         }
                     }
                     // if request is part of existing stream buffer
-                    else(req.HitL1 && streamIndex != STREAM_COUNT){
+                    else if(req.HitL1 && streamIndex != STREAM_COUNT){
                         SLH_TABLE[streamIndex].pc = req.pc;
                         SLH_TABLE[streamIndex].addr = req.addr;
                         SLH_TABLE[streamIndex].length += 1;
@@ -129,7 +129,7 @@ void Prefetcher::cpuRequest(Request req){
                     }
                     else{
                         for(int n = 1; n <= rpt[RPT_index].state && n <= REQUEST_CUTOFF; n++){
-                            u_int32_t temp_addr = req.addr + rpt[index].stride * n;
+                            u_int32_t temp_addr = req.addr + rpt[RPT_index].stride * n;
                             addRequest(temp_addr);  
                         }
                     }
@@ -175,7 +175,7 @@ u_int16_t Prefetcher::inStream(u_int32_t addr){
 	return STREAM_COUNT;
 }
 
-void Prefetcher::addReqest(u_int32_t addr){
+void Prefetcher::addRequest(u_int32_t addr){
     if(num_req != MAX_REQUESTS){
         requestQueue[num_req] = addr;
         num_req++;
