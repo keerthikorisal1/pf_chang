@@ -5,10 +5,10 @@
 #include "mem-sim.h"
 
 #define L2_BLOCK 32
-#define L2_BLOCK 16
+#define L1_BLOCK 16
 
 #define MAX_REQUESTS 512
-#define NUM_STREAMS 8
+#define STREAM_COUNT 8
 
 #define NUM_RPT_ENTRIES 128 
 #define REQUEST_CUTOFF 20
@@ -34,7 +34,7 @@ class Prefetcher {
       Request _nextReq;
       SLH SLH_TABLE[STREAM_COUNT];
 
-      u_int16_t live_Streams;
+      u_int16_t live_streams;
       u_int16_t stream_buff[STREAM_COUNT];
       u_int32_t requestQueue[MAX_REQUESTS];
       u_int16_t num_req;
