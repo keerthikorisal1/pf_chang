@@ -7,7 +7,7 @@
 #define L2_BLOCK 32
 #define L1_BLOCK 16
 
-#define MAX_REQUESTS 512
+#define MAX_REQUESTS 40
 #define STREAM_COUNT 8
 
 #define NUM_RPT_ENTRIES 128 
@@ -31,7 +31,7 @@ struct RPT {
 class Prefetcher {
   private:
       bool _ready;
-      Request _nextReq;
+      Request requests[MAX_REQUESTS];
       SLH SLH_TABLE[STREAM_COUNT];
 
       u_int16_t live_streams;
@@ -45,6 +45,7 @@ class Prefetcher {
 
       int num_rpt;
       int oldest_rpt;
+      int current_pending_request;
       RPT rpt[NUM_RPT_ENTRIES];
   
   public:
@@ -53,7 +54,8 @@ class Prefetcher {
       bool hasRequest(u_int32_t cycle);
       Request getRequest(u_int32_t cycle);
       void completeRequest(u_int32_t cycle);
-      void cpuRequest(Request req); 
+      void cpuRequest(Request req);
+      bool ifAlreadyInQueue(u_int32_t addr); 
 
 };
 
