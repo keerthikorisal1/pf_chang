@@ -1,19 +1,18 @@
 #include "prefetcher.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include "mem-sim.h"
 
 Prefetcher::Prefetcher(){
     num_rpt = 0;
     oldest_rpt = 0;
+    current_pending_request = 0
 
     u_int16_t stream_buff[STREAM_COUNT] = {0,0,0,0,0,0,0,0};
     for(u_int16_t i = 0; i < STREAM_COUNT; i++){
         streamReset(i);
     }
     live_streams = 0;
-    for(u_int16_t i = 0; i < MAX_REQUESTS; i++){
-        requestQueue[i] = 0;
-    }
     num_req = 0;
 }
 
@@ -24,17 +23,10 @@ bool Prefetcher::hasRequest(u_int32_t cycle){
 
 Request Prefetcher::getRequest(u_int32_t cycle){
     num_req--;
-    _nextReq.addr = requestQueue[0];
-
-    for(u_int16_t i = 0; i < MAX_REQUESTS; i++){
-        if(i < num_req){
-            requestQueue[i] = requestQueue[i+1];
-        }
-        else{
-            requestQueue[i] = 0;
-        }
-    }
-    return _nextReq;
+    //_nextReq.addr = requestQueue[0];
+    int request_index = current_pending_request;
+    current_pending_request = (current_pending_request + 1) % MAX_REQUESTS;
+    return requests[request_index];
 }
 
 void Prefetcher::completeRequest(u_int32_t cycle){}
@@ -48,7 +40,7 @@ void Prefetcher::cpuRequest(Request req){
     }
     // rm lifetime 0
     for(u_int16_t i = 0; i < STREAM_COUNT; i++){
-        if(stream_buf[i] == 1 && SLH_TABLE[i].lifetime == 0){
+        if(stream_buff[i] == 1 && SLH_TABLE[i].lifetime == 0){
             streamReset(i);
         }
     }
@@ -101,7 +93,7 @@ void Prefetcher::cpuRequest(Request req){
                                     }
                                 }
                             }
-                            streamRest(LRU_index);
+                            streamReset(LRU_index);
                             SLH_TABLE[LRU_index].pc = req.pc;
                             SLH_TABLE[LRU_index].addr = req.addr;
                             SLH_TABLE[LRU_index].length = 1;
@@ -176,8 +168,18 @@ u_int16_t Prefetcher::inStream(u_int32_t addr){
 }
 
 void Prefetcher::addRequest(u_int32_t addr){
-    if(num_req != MAX_REQUESTS){
-        requestQueue[num_req] = addr;
+    if(num_req != MAX_REQUESTS && !ifAlreadyInQueue(addr)){
+        requests[(current_pending_request + num_req) % MAX_REQUESTS].addr = addr;
         num_req++;
     }
+}
+
+bool Prefetcher::ifAlreadyInQueue(u_int32_t addr){
+  u_int32_t i;
+  for (i = current_pending_request; i % MAX_REQUESTS < (current_pending_request + num_req) % MAX_REQUESTS; i++) {
+    if (requests[i % MAX_REQUESTS].addr/ 32 == addr / 32) {
+      return true;
+    }
+  }
+  return false;
 }
