@@ -14,10 +14,10 @@
 
 #define NUM_RPT_ENTRIES 128 
 #define STATE_SIZE 4096
-#define NUM_REQ_PERMISS 3
+#define NUM_REQ_PER_MISS 3
 
 
-struct RPT {
+struct rpt_row_entries{
   u_int32_t pc;
   u_int32_t last_mem_access;
   u_int32_t stride;
