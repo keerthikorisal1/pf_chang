@@ -16,7 +16,7 @@
 
 struct rpt_row_entries{
   u_int32_t pc;
-  u_int32_t last_mem_access;
+  u_int32_t prev_addr;
   u_int32_t stride;
 };
 
@@ -33,7 +33,7 @@ class Prefetcher {
       Request getRequest(u_int32_t cycle);
       void completeRequest(u_int32_t cycle);
       void cpuRequest(Request req);
-      void printStruct(rpt_row_entries *current_row);
+      void printStruct(rpt_row_entries *current_rpt_row);
 
 };
 
