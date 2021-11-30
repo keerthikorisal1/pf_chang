@@ -32,6 +32,7 @@ void Prefetcher::completeRequest(u_int32_t cycle) {
         _ready = false;
     }
     else{
+        std::cout << "called cpmplete req && in RPT"
         _req_left--;
         rpt_row = _nextReq.pc % NUM_RPT_ENTRIES;
         current_row = &rpt_table[rpt_row];
@@ -39,6 +40,7 @@ void Prefetcher::completeRequest(u_int32_t cycle) {
             _nextReq.addr = _nextReq.addr + current_row->stride;
         }
         else{
+            std::cout << "called cpmplete req && not in RPT"
             _nextReq.addr = _nextReq.addr + L2_BLOCK;
         }
     }
@@ -52,8 +54,8 @@ void Prefetcher::cpuRequest(Request req){
         rpt_row = req.pc % NUM_RPT_ENTRIES;
         current_row = &rpt_table[rpt_row];
         if(current_row->pc == req.pc){
-            std::cout << "current PC: %s :" << req.pc << "\n";
-            printStruct(*current_row);
+            /*std::cout << "current PC: %s :" << req.pc << "\n";
+            printStruct(current_row);*/
             current_stride = current_row->stride;
             _nextReq.addr = req.addr + current_stride;
         }
@@ -69,7 +71,7 @@ void Prefetcher::cpuRequest(Request req){
         if(current_row->pc == req.pc){
             if((current_stride = req.addr - (current_row->last_mem_access)) == current_row->stride){
                 /*std::cout << "current stride: %s\n" << current_stride << "\n";
-                printStruct(*current_row);*/
+                printStruct(current_row);*/
                 _nextReq.addr = req.addr + current_stride;
             }
             else{
@@ -87,7 +89,7 @@ void Prefetcher::cpuRequest(Request req){
         current_row->last_mem_access = req.addr;
         /*std::cout << "last_addr: %s\n" << req.addr << "\n";
         std::cout << "current PC: %s\n" << req.pc << "\n";
-        printStruct(*current_row);*/
+        printStruct(current_row);*/
         _ready = true;
         _req_left = NUM_REQ_PER_MISS - 1;
     }
