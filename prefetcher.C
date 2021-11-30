@@ -1,5 +1,6 @@
 #include "prefetcher.h"
 #include <stdio.h>
+#include <string.h>
 
 static char tags[STATE_SIZE];
 /*static char rpt_check[NUM_RPT_ENTRIES/8 +1]; */
@@ -71,7 +72,9 @@ void Prefetcher::cpuRequest(Request req){
             else{
                 current_row->stride = current_stride;
                 printf("current stride: %s\n", current_stride);
-                printf("current rpt stride: %s\n", current_row->stride, "PC: %s\n", current_rpt->pc, "Prev_Add: %s\n", current_rpt->last_mem_access);
+                printf("current rpt stride: %s\n", current_row->stride)
+                printf("PC: %s\n", current_rpt->pc)
+                printf("Prev_Add: %s\n", current_rpt->last_mem_access);
                 _nextReq.addr = req.addr + L2_BLOCK;
             }
         }
