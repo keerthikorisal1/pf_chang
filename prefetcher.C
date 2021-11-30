@@ -40,7 +40,9 @@ void Prefetcher::completeRequest(u_int32_t cycle) {
         }
         else{
             /*std::cout << "called cpmplete req && not in RPT"*/
-            _nextReq.addr = _nextReq.addr + L2_BLOCK;
+            for(u_int16_t i = 0; i < 2; i++){
+                _nextReq.addr = req.addr + (i+1)*L2_BLOCK;
+            }
         }
     }
 }
@@ -59,7 +61,9 @@ void Prefetcher::cpuRequest(Request req){
             _nextReq.addr = req.addr + current_stride;
         }
         else{
-            _nextReq.addr = req.addr + L2_BLOCK;
+            for(u_int16_t i = 0; i < 2; i++){
+                _nextReq.addr = req.addr + (i+1)*L2_BLOCK;
+            }
         }
         _ready = true;
         _req_left = NUM_REQ_PER_MISS - 1;
@@ -77,11 +81,15 @@ void Prefetcher::cpuRequest(Request req){
                 current_rpt_row->stride = current_stride;
                 /*std::cout << "current stride: %s\n" << current_stride << "\n";
                 printStruct(*current_row);*/
-                _nextReq.addr = req.addr + L2_BLOCK;
+                for(u_int16_t i = 0; i < 2; i++){
+                    _nextReq.addr = req.addr + (i+1)*L2_BLOCK;
+                }
             }
         }
         else{
-            _nextReq.addr = req.addr + L2_BLOCK;
+            for(u_int16_t i = 0; i < 2; i++){
+                _nextReq.addr = req.addr + (i+1)*L2_BLOCK;
+            }
             current_rpt_row->stride = 0;
         }
         current_rpt_row->pc = req.pc;
@@ -95,8 +103,8 @@ void Prefetcher::cpuRequest(Request req){
     
 }
 
-void Prefetcher::printStruct(rpt_row_entries *current_row){
-    std::cout << "PC: \n" << current_row->pc << "\n";
-    std::cout << "Prev_Add: \n" << current_row->prev_addr_access << "\n";
-    std::cout << "Current Stride: \n" << current_row->stride << "\n";
+void Prefetcher::printStruct(rpt_row_entries *current_rpt_row){
+    std::cout << "PC: \n" << current_rpt_row->pc << "\n";
+    std::cout << "Prev_Add: \n" << current_rpt_row->prev_addr << "\n";
+    std::cout << "Current Stride: \n" << current_rpt_row->stride << "\n";
 }
