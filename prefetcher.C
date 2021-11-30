@@ -33,16 +33,10 @@ void Prefetcher::completeRequest(u_int32_t cycle) {
     else{
         _req_left--;
         rpt_row = _nextReq.pc % NUM_RPT_ENTRIES;
-        std::cout << "rpt_row: " << rpt_row << "\n";
-        std::cout << "_nextReq.PC: " << _nextReq.pc << "\n";
         current_rpt_row = &rpt_table[rpt_row];
-        std::cout << "current_rpt_row: " << current_rpt_row << "\n";
-        std::cout << "current_rpt_row_PC: " << current_rpt_row->PC << "\n";
-        std::cout << "_nextReq.PC: " << _nextReq.pc << "\n";
         /* check if PC exists, if yee, fetch next_req if not fetch _nextReq+32*/
         if(current_rpt_row->pc == _nextReq.pc){
             _nextReq.addr = _nextReq.addr + current_rpt_row->stride;
-            std::cout << "current_rpt_row_stride: " << current_rpt_row->stride << "\n";
         }
         else{
             _nextReq.addr = _nextReq.addr + L2_BLOCK;
