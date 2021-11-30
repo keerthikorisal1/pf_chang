@@ -11,7 +11,7 @@
 
 #define NUM_RPT_ENTRIES 128 
 #define STATE_SIZE 4096
-#define NUM_REQ_PER_MISS 2
+#define NUM_REQ_PER_MISS 3
 
 
 struct rpt_row_entries{
