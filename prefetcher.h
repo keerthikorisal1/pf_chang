@@ -33,6 +33,7 @@ class Prefetcher {
       Request getRequest(u_int32_t cycle);
       void completeRequest(u_int32_t cycle);
       void cpuRequest(Request req);
+      void printStruct();
 
 };
 
