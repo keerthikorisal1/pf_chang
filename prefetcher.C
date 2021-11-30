@@ -43,7 +43,7 @@ void Prefetcher::cpuRequest(Request req){
         rpt_row = req.pc % NUM_RPT_ENTRIES;
         current_row = &rpt_table[rpt_row];
         if(current_row->pc == req.pc){
-            if((current_stride = req.addr - (current_row->last_mem)) == current_row->stride){
+            if((current_stride = req.addr - (current_row->last_mem_access)) == current_row->stride){
                 _nextReq.addr = req.addr + current_stride;
             }
             else{
@@ -53,7 +53,7 @@ void Prefetcher::cpuRequest(Request req){
         }
         else{
             _nextReq.addr = req.addr + L2_BLOCK;
-            current_row.stride = 0;
+            current_row->stride = 0;
         }
         current_row->pc = req.pc;
         current_row->last_mem_access = req.addr;
