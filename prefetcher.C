@@ -64,14 +64,14 @@ void Prefetcher::cpuRequest(Request req){
         current_row = &rpt_table[rpt_row];
         if(current_row->pc == req.pc){
             if((current_stride = req.addr - (current_row->last_mem_access)) == current_row->stride){
-                printf("current stride: %s\n", req.addr);
-                printStruct(current_row);
+                printf("current stride: %s\n", current_stride);
+                printf("current rpt stride: %s\n", current_row->stride);
                 _nextReq.addr = req.addr + current_stride;
             }
             else{
                 current_row->stride = current_stride;
-                printf("current stride: %s\n", req.addr);
-                printStruct(current_row);
+                printf("current stride: %s\n", current_stride);
+                printf("current rpt stride: %s\n", current_row->stride, "PC: %s\n", current_rpt->pc", "Prev_Add: %s\n", current_rpt->last_mem_access);
                 _nextReq.addr = req.addr + L2_BLOCK;
             }
         }
@@ -83,7 +83,7 @@ void Prefetcher::cpuRequest(Request req){
         current_row->last_mem_access = req.addr;
         printf("last_addr: %s\n", req.addr);
         printf("current PC: %s\n", req.pc);
-        printStruct(current_row);
+        */printStruct(current_row);/*
         _ready = true;
         _req_left = NUM_REQ_PER_MISS - 1;
     }
@@ -92,6 +92,7 @@ void Prefetcher::cpuRequest(Request req){
 
 void Prefetcher::printStruct(rpt_row_entries *current_row){
     int i;
+    struct current_rpt = *current_row; 
     for(i = 0; i < 1; i++){
         printf("PC: %s\n", current_rpt->pc);
         printf("Prev_Add: %s\n", current_rpt->last_mem_access);
