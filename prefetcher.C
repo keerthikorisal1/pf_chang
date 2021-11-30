@@ -3,13 +3,13 @@
 
 static char tags[STATE_SIZE];
 /*static char rpt_check[NUM_RPT_ENTRIES/8 +1]; */
-ctaitc rpt_row_entries rpt_table[NUM_RPT_ENTRIES];
+static rpt_row_entries rpt_table[NUM_RPT_ENTRIES];
 
 Prefetcher::Prefetcher(){
     int i;
     _ready = false;
     memset(tags, 0, STATE_SIZE);
-    for(i = 0; i < NUM_RPT_ENTRIESL i++){
+    for(i = 0; i < NUM_RPT_ENTRIES; i++){
         rpt_table[i].pc = 0;
         rpt_table[i].stride = 0;
         rpt_table[i].last_mem_access = 0;
