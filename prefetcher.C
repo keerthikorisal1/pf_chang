@@ -49,7 +49,7 @@ void Prefetcher::cpuRequest(Request req){
         current_row = &rpt_table[rpt_row];
         if(current_row->pc == req.pc){
             printf("current PC: %s\n", req.pc);
-            printStruct(current_row);
+            /*printStruct(current_row);*/
             current_stride = current_row->stride;
             _nextReq.addr = req.addr + current_stride;
         }
@@ -83,7 +83,7 @@ void Prefetcher::cpuRequest(Request req){
         current_row->last_mem_access = req.addr;
         printf("last_addr: %s\n", req.addr);
         printf("current PC: %s\n", req.pc);
-        */printStruct(current_row);/*
+        /*printStruct(current_row);*/
         _ready = true;
         _req_left = NUM_REQ_PER_MISS - 1;
     }
