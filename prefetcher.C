@@ -1,6 +1,9 @@
 #include "prefetcher.h"
 #include <stdio.h>
 #include <string.h>
+#include <iostream>
+
+using namespace std;
 
 static char tags[STATE_SIZE];
 /*static char rpt_check[NUM_RPT_ENTRIES/8 +1]; */
@@ -49,8 +52,8 @@ void Prefetcher::cpuRequest(Request req){
         rpt_row = req.pc % NUM_RPT_ENTRIES;
         current_row = &rpt_table[rpt_row];
         if(current_row->pc == req.pc){
-            std::cout << "current PC: %s\n", req.pc);
-            /*printStruct(current_row);*/
+            std::cout << "current PC: %s\n" << req.pc << "\n";
+            printStruct(current_row);
             current_stride = current_row->stride;
             _nextReq.addr = req.addr + current_stride;
         }
@@ -65,16 +68,14 @@ void Prefetcher::cpuRequest(Request req){
         current_row = &rpt_table[rpt_row];
         if(current_row->pc == req.pc){
             if((current_stride = req.addr - (current_row->last_mem_access)) == current_row->stride){
-                /*printf("current stride: %s\n", current_stride);
-                printf("current rpt stride: %s\n", current_row->stride);*/
+                std::cout << "current stride: %s\n" << current_stride << "\n";
+                printStruct(current_row);
                 _nextReq.addr = req.addr + current_stride;
             }
             else{
                 current_row->stride = current_stride;
-                /*printf("current stride: %s\n", current_stride);
-                printf("current rpt stride: %s\n", current_row->stride)
-                printf("PC: %s\n", current_rpt->pc)
-                printf("Prev_Add: %s\n", current_rpt->last_mem_access);*/
+                std::cout << "current stride: %s\n" << current_stride << "\n";
+                printStruct(current_row);
                 _nextReq.addr = req.addr + L2_BLOCK;
             }
         }
@@ -84,11 +85,17 @@ void Prefetcher::cpuRequest(Request req){
         }
         current_row->pc = req.pc;
         current_row->last_mem_access = req.addr;
-        /*printf("last_addr: %s\n", req.addr);
-        printf("current PC: %s\n", req.pc);
-        /*printStruct(current_row);*/
+        std::cout << "last_addr: %s\n" << req.addr << "\n";
+        std::cout << "current PC: %s\n" << req.pc << "\n";
+        printStruct(current_row);
         _ready = true;
         _req_left = NUM_REQ_PER_MISS - 1;
     }
     
+}
+
+void Prefetcher::printStruct(rpt_row_entries *current_row){
+    std::cout << "PC: %s\n" << current_row->pc << "\n";
+    std::cout << "Prev_Add: %s\n" << current_rpt->last_mem_access << "\n";
+    std::cout << "Current Stride: %s\n" << current_rpt->stride << "\n";
 }
