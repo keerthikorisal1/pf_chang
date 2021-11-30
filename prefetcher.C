@@ -25,7 +25,7 @@ Request Prefetcher::getRequest(u_int32_t cycle) { return _nextReq; }
 
 void Prefetcher::completeRequest(u_int32_t cycle) {
     int rpt_row, current_stride;
-    rpt_row_entries *current_rtp_row;
+    rpt_row_entries *current_rpt_row;
 
     if(_req_left == 0){
         _ready = false;
@@ -35,11 +35,11 @@ void Prefetcher::completeRequest(u_int32_t cycle) {
         rpt_row = _nextReq.pc % NUM_RPT_ENTRIES;
         current_rpt_row = &rpt_table[rpt_row];
         if(current_rpt_row->pc == _nextReq.pc){
-            std::cout << "called cpmplete req && in RPT"
+            /*std::cout << "called cpmplete req && in RPT"*/
             _nextReq.addr = _nextReq.addr + current_rpt_row->stride;
         }
         else{
-            std::cout << "called cpmplete req && not in RPT"
+            /*std::cout << "called cpmplete req && not in RPT"*/
             _nextReq.addr = _nextReq.addr + L2_BLOCK;
         }
     }
