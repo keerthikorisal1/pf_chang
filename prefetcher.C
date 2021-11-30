@@ -20,7 +20,25 @@ bool Prefetcher::hasRequest(u_int32_t cycle){ return _ready; }
 
 Request Prefetcher::getRequest(u_int32_t cycle) { return _nextReq; }
 
-void Prefetcher::completeRequest(u_int32_t cycle) {}
+void Prefetcher::completeRequest(u_int32_t cycle) {
+    int rpt_row, current_stride;
+    rpt_row_entries *current_row;
+
+    if(_rep_left == 0){
+        _ready = false;
+    }
+    else{
+        _req_left--;
+        rpt_row = _nextReq.pc % NUM_RPT_ENTRIES;
+        current_row = &rpt_table[rpt_row];
+        if(current_row->pc == _nextReq.pc){
+            _nextReq.addr = _nextReq.addr + current_row->stride;
+        }
+        else{
+            _nextReq.addr = _nextReq.addr + L2_BLOCK;
+        }
+    }
+}
 
 void Prefetcher::cpuRequest(Request req){
     int rpt_row, current_stride;
