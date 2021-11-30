@@ -49,7 +49,7 @@ void Prefetcher::cpuRequest(Request req){
         current_row = &rpt_table[rpt_row];
         if(current_row->pc == req.pc){
             printf("current PC: %s\n", req.pc);
-            printStruct();
+            printStruct(current_row);
             current_stride = current_row->stride;
             _nextReq.addr = req.addr + current_stride;
         }
@@ -90,7 +90,7 @@ void Prefetcher::cpuRequest(Request req){
     
 }
 
-void Prefetcher::printStruct(rpt_tables *current_rpt){
+void Prefetcher::printStruct(rpt_row_entries *current_row){
     int i;
     for(i = 0; i < 1; i++){
         printf("PC: %s\n", current_rpt->pc);
