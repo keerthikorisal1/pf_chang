@@ -65,13 +65,13 @@ void Prefetcher::cpuRequest(Request req){
         if(current_row->pc == req.pc){
             if((current_stride = req.addr - (current_row->last_mem_access)) == current_row->stride){
                 printf("current stride: %s\n", req.addr);
-                printStruct(current_stride);
+                printStruct(current_row);
                 _nextReq.addr = req.addr + current_stride;
             }
             else{
                 current_row->stride = current_stride;
                 printf("current stride: %s\n", req.addr);
-                printStruct();
+                printStruct(current_row);
                 _nextReq.addr = req.addr + L2_BLOCK;
             }
         }
@@ -83,7 +83,7 @@ void Prefetcher::cpuRequest(Request req){
         current_row->last_mem_access = req.addr;
         printf("last_addr: %s\n", req.addr);
         printf("current PC: %s\n", req.pc);
-        printStruct();
+        printStruct(current_row);
         _ready = true;
         _req_left = NUM_REQ_PER_MISS - 1;
     }
