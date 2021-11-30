@@ -5,13 +5,13 @@
 
 using namespace std;
 
-/*static char tags[STATE_SIZE];*/
+/*defines number of rpt_table entries*/ 
 static rpt_row_entries rpt_table[NUM_RPT_ENTRIES];
 
 Prefetcher::Prefetcher(){
     int i;
     _ready = false;
-    /*memset(tags, 0, STATE_SIZE);*/
+    /*clear RPT table*/
     for(i = 0; i < NUM_RPT_ENTRIES; i++){
         rpt_table[i].pc = 0;
         rpt_table[i].stride = 0;
@@ -26,14 +26,18 @@ Request Prefetcher::getRequest(u_int32_t cycle) { return _nextReq; }
 void Prefetcher::completeRequest(u_int32_t cycle) {
     int rpt_row, current_stride;
     rpt_row_entries *current_rpt_row;
-
+    /*check for remaining request, if not check if next request is in RPT, if not fetch next request+32*/
     if(_req_left == 0){
         _ready = false;
     }
     else{
         _req_left--;
         rpt_row = _nextReq.pc % NUM_RPT_ENTRIES;
+        std::cout << "rpt_row: " << rpt_row << "\n";
+        std::cout << "_nextReq.PC: " << _nextReq.pc << "\n";
         current_rpt_row = &rpt_table[rpt_row];
+        td::cout << "current_rpt_row: " << current_rpt_row << "\n";
+        /* check if PC exists, if yee, fetch next_req if not fetch _nextReq+32*/
         if(current_rpt_row->pc == _nextReq.pc){
             _nextReq.addr = _nextReq.addr + current_rpt_row->stride;
         }
