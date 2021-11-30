@@ -9,12 +9,9 @@
 #define L2_BLOCK 32
 #define L1_BLOCK 16
 
-#define MAX_REQUESTS 40
-#define STREAM_COUNT 8
-
 #define NUM_RPT_ENTRIES 128 
 #define STATE_SIZE 4096
-#define NUM_REQ_PER_MISS 3
+#define NUM_REQ_PER_MISS 2
 
 
 struct rpt_row_entries{
